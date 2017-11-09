@@ -1,0 +1,325 @@
+Hierarchical modeling in R
+========================================================
+author: Sean Raleigh
+date: November 10, 2017
+autosize:true
+
+Big Mountain Dev and Data Conference, Salt Lake City, UT
+
+
+========================================================
+
+![Containers](./images/containers.jpg)
+
+
+========================================================
+
+$$
+\DeclareMathOperator{\E}{E}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\Cov}{Cov}
+\begin{align}
+Y_{ij}  &= \beta_{0j} + \beta_{1j} X_{ij} + r_{ij} \\
+        & \E(r_{ij}) = 0; \Var(r_{ij}) = \sigma^{2} \\
+\beta_{0j}  &= \gamma_{00} + \gamma_{01} G_{j} + U_{0j} \\
+\beta_{1j}  &= \gamma_{10} + \gamma_{11} G_{j} + U_{1j} \\
+        & \E(U_{0j}) = 0; \E(U_{1j}) = 0 \\
+        & \E(\beta_{0j}) = \gamma_{00}; \E(\beta_{1j}) = \gamma_{01} \\
+        & \Var(\beta_{0j}) = \Var(U_{0j}) = \tau_{00};
+          \Var(\beta_{1j}) = \Var(U_{1j}) = \tau_{11} \\
+        & \Cov(\beta_{0j}, \beta_{1j}) = \Cov(U_{0j}, U_{1j}) = \tau_{01} \\
+        & \Cov(U_{0j}, r_{ij}) = \Cov(U_{1j}, r_{ij}) = 0
+\end{align}
+$$
+
+
+Preliminaries:
+========================================================
+
+```{r}
+library(tidyverse)
+library(broom)
+library(sjPlot)
+```
+
+
+Example
+========================================================
+
+Patient data:
+
+* `individual_level_data.csv`
+   - `program_id`
+   - `sex`
+   - `score_admit`
+   - `score_discharge`
+
+```{r}
+patients <- read_csv("./data/individual_level_data.csv")
+patients$program_id <- factor(patients$program_id)
+patients$sex <- factor(patients$sex)
+```
+
+
+Example
+========================================================
+
+```{r}
+head(patients)
+```
+
+
+Example
+========================================================
+
+Program data:
+
+* `program_level_data.csv`
+   - `program_id`
+   - `program_type`
+   - `n`
+
+```{r}
+programs <- read_csv("./data/program_level_data.csv")
+programs$program_id <- factor(programs$program_id)
+programs$program_type <- factor(programs$program_type)
+```
+
+
+Example
+========================================================
+
+```{r}
+head(programs)
+```
+
+
+Start simple...
+========================================================
+type:section
+
+Just look at average scores.
+
+
+Start simple...
+========================================================
+Bad Idea 1: Aggregation, AKA "Complete pooling"
+
+```{r}
+bad_idea_1 <- lm(score_discharge ~ 1,
+                 data = patients) %>%
+    tidy() %>%
+    select(estimate)
+```
+
+
+Start simple...
+========================================================
+
+Bad Idea 1: Aggregation, AKA "Complete pooling"
+
+```{r}
+bad_idea_1
+```
+
+This is just the mean:
+
+```{r}
+mean(patients$score_discharge)
+```
+
+
+Start simple...
+========================================================
+
+Bad Idea 2: Disaggregation, AKA "No pooling"
+
+```{r}
+bad_idea_2 <- patients %>%
+    group_by(program_id) %>%
+    nest() %>%
+    transmute(fit = map(data,
+                ~ tidy(lm(score_discharge ~ 1,
+                          data = .x)))) %>%
+    unnest() %>%
+    select(estimate)
+```
+
+
+Start simple...
+========================================================
+
+Bad Idea 2: Disaggregation, AKA "No pooling"
+
+```{r}
+bad_idea_2
+```
+
+
+Start simple...
+========================================================
+
+Bad Idea 2: Disaggregation, AKA "No pooling"
+
+These are just the program means:
+
+```{r}
+patients %>%
+    group_by(program_id) %>%
+    summarize(mean(score_discharge))
+```
+
+
+Start simple...
+========================================================
+
+Good idea: Hierarchical modeling, AKA "Partial pooling"
+
+```{r}
+library(lme4)
+good_idea_model <- lmer(
+    score_discharge ~ (1 | program_id),
+    data = patients)
+```
+
+
+Start simple...
+========================================================
+
+Good idea: Hierarchical modeling, AKA "Partial pooling"
+
+
+```{r}
+fixef(good_idea_model)
+```
+
+
+Start simple...
+========================================================
+
+Good idea: Hierarchical modeling, AKA "Partial pooling"
+
+```{r}
+ranef(good_idea_model)
+```
+
+
+Start simple...
+========================================================
+
+Good idea: Hierarchical modeling, AKA "Partial pooling"
+
+```{r}
+good_idea <- fixef(good_idea_model) +
+    ranef(good_idea_model)$program_id %>%
+    rename(estimate = `(Intercept)`)
+good_idea
+```
+
+
+========================================================
+
+```{r, echo = FALSE, fig.width = 14}
+programs_plot <- programs %>%
+    mutate(`No pooling` = bad_idea_2$estimate,
+           `Partial pooling` = good_idea$estimate) %>%
+    gather(Model, `Score at Discharge`, `No pooling`:`Partial pooling`)
+
+slide_theme <- theme(text = element_text(size = 36),
+                     legend.title = element_text(size = 24),
+                     legend.text = element_text(size = 12),
+                     axis.text.x = element_text(size = 12))
+
+ggplot(programs_plot, aes(y = `Score at Discharge`,
+                          x = program_id,
+                          color = Model, size = n)) +
+    geom_hline(yintercept = bad_idea_1$estimate,
+               color = "blue") +
+    geom_point(alpha = 0.75) +
+    scale_color_manual(values = c("No pooling" = "green",
+                                  "Partial pooling" = "red",
+                                  "Complete pooling" = "blue"),
+                       limits = c("No pooling",
+                                  "Partial pooling",
+                                  "Complete pooling")) +
+    scale_size_continuous(guide = FALSE) +
+    slide_theme
+
+```
+
+
+Add predictors
+========================================================
+type:section
+
+
+Add predictors
+========================================================
+
+Join `patients` and `programs`
+
+```{r}
+all_data <- inner_join(patients,
+                       programs,
+                       by = "program_id")
+head(all_data)
+```
+
+
+Add predictors
+========================================================
+
+Varying intercept:
+
+```{r}
+var_int <- lmer(
+    score_discharge ~ score_admit +
+        (1 | program_type),
+    data = all_data)
+```
+
+
+
+========================================================
+
+```{r, echo = FALSE, fig.width = 14}
+sjp.lmer(var_int, type = "ri.slope", prnt.plot = FALSE)$plot[[1]] +
+    slide_theme
+```
+
+
+========================================================
+
+```{r, echo = FALSE, fig.width = 14}
+sjp.lmer(var_int, type = "coef")
+```
+
+
+Add predictors
+========================================================
+
+Varying intercepts and slopes:
+
+```{r}
+var_int_slope <- lmer(
+    score_discharge ~
+        (1 + score_admit | program_type),
+    data = all_data)
+```
+
+
+========================================================
+
+```{r, echo = FALSE, fig.width = 14}
+sjp.lmer(var_int_slope, type = "rs.ri", prnt.plot = FALSE)$plot[[1]] +
+    slide_theme
+
+```
+
+
+========================================================
+
+```{r, echo = FALSE, fig.width = 14}
+sjp.lmer(var_int_slope, type = "coef")
+```
+
