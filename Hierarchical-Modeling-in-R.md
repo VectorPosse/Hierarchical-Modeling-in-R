@@ -52,7 +52,8 @@ $$
 Preliminaries:
 ========================================================
 
-```{r}
+
+```r
 library(tidyverse)
 library(broom)
 library(lme4)
@@ -71,7 +72,8 @@ Patient data:
    - `score_admit`
    - `score_discharge`
 
-```{r}
+
+```r
 patients <- read_csv("./data/individual_level_data.csv")
 patients$program_id <- factor(patients$program_id)
 patients$sex <- factor(patients$sex)
@@ -81,8 +83,21 @@ patients$sex <- factor(patients$sex)
 Example
 ========================================================
 
-```{r}
+
+```r
 head(patients)
+```
+
+```
+# A tibble: 6 x 4
+  program_id    sex score_admit score_discharge
+      <fctr> <fctr>       <int>           <int>
+1          1 FEMALE          15              -7
+2          1 FEMALE          57              15
+3          1 FEMALE          59             120
+4          1 FEMALE          36              20
+5          1 FEMALE          71              53
+6          1 FEMALE          60              67
 ```
 
 
@@ -96,7 +111,8 @@ Program data:
    - `program_type`
    - `n`
 
-```{r}
+
+```r
 programs <- read_csv("./data/program_level_data.csv")
 programs$program_id <- factor(programs$program_id)
 programs$program_type <- factor(programs$program_type)
@@ -106,8 +122,21 @@ programs$program_type <- factor(programs$program_type)
 Example
 ========================================================
 
-```{r}
+
+```r
 head(programs)
+```
+
+```
+# A tibble: 6 x 3
+  program_id program_type     n
+      <fctr>       <fctr> <int>
+1          1            A     8
+2          2            B    52
+3          3            A    21
+4          4            A    26
+5          5            A    19
+6          6            A     7
 ```
 
 
@@ -123,7 +152,8 @@ Start simple...
 
 Bad Idea 1: Aggregation, AKA "Complete pooling"
 
-```{r}
+
+```r
 bad_idea_1 <- lm(score_discharge ~ 1,
                  data = patients) %>%
     tidy() %>%
@@ -136,14 +166,25 @@ Start simple...
 
 Bad Idea 1: Aggregation, AKA "Complete pooling"
 
-```{r}
+
+```r
 bad_idea_1
+```
+
+```
+  estimate
+1 34.74024
 ```
 
 This is just the mean:
 
-```{r}
+
+```r
 mean(patients$score_discharge)
+```
+
+```
+[1] 34.74024
 ```
 
 
@@ -152,7 +193,8 @@ Start simple...
 
 Bad Idea 2: Disaggregation, AKA "No pooling"
 
-```{r}
+
+```r
 bad_idea_2 <- patients %>%
     group_by(program_id) %>%
     nest() %>%
@@ -169,8 +211,21 @@ Start simple...
 
 Bad Idea 2: Disaggregation, AKA "No pooling"
 
-```{r}
+
+```r
 head(bad_idea_2)
+```
+
+```
+# A tibble: 6 x 1
+  estimate
+     <dbl>
+1 49.50000
+2 34.92308
+3 23.23810
+4 29.34615
+5 29.78947
+6 21.00000
 ```
 
 
@@ -181,10 +236,23 @@ Bad Idea 2: Disaggregation, AKA "No pooling"
 
 These are just the program means:
 
-```{r}
+
+```r
 patients %>%
     group_by(program_id) %>%
     summarize(mean(score_discharge)) %>% head()
+```
+
+```
+# A tibble: 6 x 2
+  program_id `mean(score_discharge)`
+      <fctr>                   <dbl>
+1          1                49.50000
+2          2                34.92308
+3          3                23.23810
+4          4                29.34615
+5          5                29.78947
+6          6                21.00000
 ```
 
 
@@ -193,7 +261,8 @@ Start simple...
 
 Good idea: Hierarchical modeling, AKA "Partial pooling"
 
-```{r}
+
+```r
 good_idea_model <- lmer(
     score_discharge ~ (1 | program_id),
     data = patients)
@@ -206,18 +275,14 @@ Start simple...
 Good idea: Hierarchical modeling, AKA "Partial pooling"
 
 
-```{r}
+
+```r
 fixef(good_idea_model)
 ```
 
-
-Start simple...
-========================================================
-
-Good idea: Hierarchical modeling, AKA "Partial pooling"
-
-```{r}
-ranef(good_idea_model)$program_id %>% head()
+```
+(Intercept) 
+   31.62485 
 ```
 
 
@@ -226,46 +291,49 @@ Start simple...
 
 Good idea: Hierarchical modeling, AKA "Partial pooling"
 
-```{r}
+
+```r
+ranef(good_idea_model)$program_id %>% head()
+```
+
+```
+  (Intercept)
+1   10.171421
+2    2.954024
+3   -6.508776
+4   -1.848023
+5   -1.391592
+6   -5.695171
+```
+
+
+Start simple...
+========================================================
+
+Good idea: Hierarchical modeling, AKA "Partial pooling"
+
+
+```r
 good_idea <- fixef(good_idea_model) +
     ranef(good_idea_model)$program_id %>%
     rename(estimate = `(Intercept)`)
 head(good_idea)
 ```
 
+```
+  estimate
+1 41.79627
+2 34.57887
+3 25.11607
+4 29.77682
+5 30.23325
+6 25.92968
+```
+
 
 ========================================================
 
-```{r, echo = FALSE, fig.width = 18, fig.height = 12}
-programs_plot <- programs %>%
-    mutate(`No pooling` = bad_idea_2$estimate,
-           `Partial pooling` = good_idea$estimate) %>%
-    gather(Model, `Score at Discharge`, `No pooling`:`Partial pooling`)
-
-slide_theme_1 <- theme(text = element_text(size = 36),
-                     legend.title = element_text(size = 24),
-                     legend.text = element_text(size = 24),
-                     legend.key.size = unit(3,"line"),
-                     axis.text.x = element_text(size = 24))
-
-ggplot(programs_plot, aes(y = `Score at Discharge`,
-                          x = program_id,
-                          color = Model, size = n)) +
-    geom_hline(yintercept = bad_idea_1$estimate,
-               color = "blue") +
-    geom_point(alpha = 0.75) +
-    scale_color_manual(values = c("No pooling" = "green",
-                                  "Partial pooling" = "red",
-                                  "Complete pooling" = "blue"),
-                       limits = c("No pooling",
-                                  "Partial pooling",
-                                  "Complete pooling")) +
-    scale_size_continuous(guide = FALSE,
-                          range = c(5,20)) +
-    guides(color = guide_legend(override.aes = list(size=10))) +
-    slide_theme_1
-
-```
+![plot of chunk unnamed-chunk-16](Hierarchical-Modeling-in-R-figure/unnamed-chunk-16-1.png)
 
 
 Add predictors
@@ -278,7 +346,8 @@ Add predictors
 
 Join `patients` and `programs`
 
-```{r}
+
+```r
 all_data <- inner_join(patients,
                        programs,
                        by = "program_id")
@@ -290,7 +359,8 @@ Add predictors
 
 Bad Idea 1 Redux: Aggregation, AKA "Complete pooling"
 
-```{r}
+
+```r
 bad_idea_1_redux <-
     lm(score_discharge ~ score_admit,
        data = patients) %>%
@@ -306,8 +376,14 @@ Add predictors
 
 Bad Idea 1 Redux: Aggregation, AKA "Complete pooling"
 
-```{r}
+
+```r
 bad_idea_1_redux
+```
+
+```
+  intercept score_admit
+1  13.65125    0.308051
 ```
 
 
@@ -316,7 +392,8 @@ Add predictors
 
 Bad Idea 2: Disaggregation, AKA "No pooling"
 
-```{r}
+
+```r
 bad_idea_2_redux <- patients %>%
     group_by(program_id) %>%
     nest() %>%
@@ -337,8 +414,21 @@ Add predictors
 
 Bad Idea 2: Disaggregation, AKA "No pooling"
 
-```{r}
+
+```r
 head(bad_idea_2_redux)
+```
+
+```
+# A tibble: 6 x 3
+  program_id intercept score_admit
+       <int>     <dbl>       <dbl>
+1          1 -9.780508   0.9963111
+2          2 13.800500   0.2726170
+3          3 -3.694078   0.4183252
+4          4  8.621399   0.2806477
+5          5 15.639619   0.1695128
+6          6 15.049439   0.1236022
 ```
 
 
@@ -347,7 +437,8 @@ Add predictors
 
 Hierarchical, but still a bad idea: Varying intercepts
 
-```{r}
+
+```r
 var_int <- lmer(
     score_discharge ~ score_admit +
         (1 | program_id),
@@ -361,18 +452,14 @@ Add predictors
 
 Hierarchical, but still a bad idea: Varying intercepts
 
-```{r}
+
+```r
 fixef(var_int)
 ```
 
-
-Add predictors
-========================================================
-
-Hierarchical, but still a bad idea: Varying intercepts
-
-```{r}
-ranef(var_int)$program_id %>% head()
+```
+(Intercept) score_admit 
+ 11.1060690   0.3087433 
 ```
 
 
@@ -381,32 +468,50 @@ Add predictors
 
 Hierarchical, but still a bad idea: Varying intercepts
 
-```{r}
+
+```r
+ranef(var_int)$program_id %>% head()
+```
+
+```
+  (Intercept)
+1 11.95211325
+2 -0.09481184
+3 -6.16031399
+4 -3.77500291
+5 -5.51917086
+6 -2.80497068
+```
+
+
+Add predictors
+========================================================
+
+Hierarchical, but still a bad idea: Varying intercepts
+
+
+```r
 ranef(var_int)$program_id %>%
     mutate(intercept = `(Intercept)` +
                fixef(var_int)[1]) %>%
     select(-`(Intercept)`) %>% head()
 ```
 
+```
+  intercept
+1 23.058182
+2 11.011257
+3  4.945755
+4  7.331066
+5  5.586898
+6  8.301098
+```
+
 
 ========================================================
 
 
-```{r, echo = FALSE, fig.width = 18, fig.height = 12}
-slide_theme_2 <- theme(text = element_text(size = 36),
-                     legend.title = element_text(size = 24),
-                     legend.text = element_text(size = 24),
-                     legend.key.size = unit(3,"line"),
-                     axis.text.x = element_text(size = 12),
-                     axis.text.y = element_text(size = 24))
-
-plot_var_int <- sjp.lmer(var_int, type = "coef",
-                         prnt.plot = FALSE,
-                         free.scale = TRUE,
-                         show.values = FALSE)
-
-plot_var_int$plot + slide_theme_2
-```
+![plot of chunk unnamed-chunk-26](Hierarchical-Modeling-in-R-figure/unnamed-chunk-26-1.png)
 
 
 Add predictors
@@ -414,7 +519,8 @@ Add predictors
 
 Good idea: Varying intercepts and slopes
 
-```{r}
+
+```r
 var_int_slope <- lmer(
     score_discharge ~ score_admit +
         (1 + score_admit | program_id),
@@ -427,18 +533,14 @@ Add predictors
 
 Good idea: Varying intercepts and slopes
 
-```{r}
+
+```r
 fixef(var_int_slope)
 ```
 
-
-Add predictors
-========================================================
-
-Good idea: Varying intercepts and slopes
-
-```{r}
-ranef(var_int_slope)$program_id %>% head()
+```
+(Intercept) score_admit 
+ 12.9582097   0.2872658 
 ```
 
 
@@ -447,7 +549,29 @@ Add predictors
 
 Good idea: Varying intercepts and slopes
 
-```{r}
+
+```r
+ranef(var_int_slope)$program_id %>% head()
+```
+
+```
+  (Intercept)  score_admit
+1  3.74238036  0.209139978
+2 -0.07194651 -0.004020674
+3 -1.27664770 -0.071344451
+4 -0.74475261 -0.041619913
+5 -1.20646713 -0.067422465
+6 -1.10857099 -0.061951616
+```
+
+
+Add predictors
+========================================================
+
+Good idea: Varying intercepts and slopes
+
+
+```r
 good_idea_redux <-
     ranef(var_int_slope)$program_id %>%
     mutate(intercept = `(Intercept)` +
@@ -465,46 +589,30 @@ Add predictors
 
 Good idea: Varying intercepts and slopes
 
-```{r}
+
+```r
 head(good_idea_redux)
 ```
 
-
-========================================================
-
-```{r, echo = FALSE, fig.width = 18, fig.height = 12}
-plot_var_int_slope <- sjp.lmer(var_int_slope, type = "coef",
-                               prnt.plot = FALSE,
-                               free.scale = TRUE,
-                               show.values = FALSE)
-
-plot_var_int_slope$plot + slide_theme_2
+```
+  program_id intercept score_admit
+1          1  16.70059   0.4964058
+2          2  12.88626   0.2832452
+3          3  11.68156   0.2159214
+4          4  12.21346   0.2456459
+5          5  11.75174   0.2198434
+6          6  11.84964   0.2253142
 ```
 
 
 ========================================================
 
-```{r, echo = FALSE, fig.width = 18, fig.height = 12}
-first_six <- all_data %>%
-    filter(program_id %in% 1:6)
+![plot of chunk unnamed-chunk-32](Hierarchical-Modeling-in-R-figure/unnamed-chunk-32-1.png)
 
-ggplot(first_six, aes(y = score_discharge, x = score_admit)) +
-    facet_wrap("program_id") +
-    geom_point() +
-    geom_abline(data = bad_idea_1_redux,
-                aes(intercept = intercept,
-                    slope = score_admit),
-                color = "blue", size = 2) +
-    geom_abline(data = head(bad_idea_2_redux),
-                aes(intercept = intercept,
-                    slope = score_admit),
-                color = "green", size = 2) +
-    geom_abline(data = head(good_idea_redux),
-                aes(intercept = intercept,
-                    slope = score_admit),
-                color = "red", size = 2) +
-    theme(text = element_text(size = 36))
-```
+
+========================================================
+
+![plot of chunk unnamed-chunk-33](Hierarchical-Modeling-in-R-figure/unnamed-chunk-33-1.png)
 
 
 ========================================================
